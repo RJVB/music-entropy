@@ -147,12 +147,10 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     n_frames = int(max_frames) if max_frames else wr.getnframes()
     n_channels = wr.getnchannels()
     ## if n_channels != 2 or sample_width != 2 or frame_rate != 44100:
-    if n_channels != 2 or sample_width < 2:
+    if n_channels != 2 or not sample_width in [2,3,4,8]:
         print("Wrong sample width or frame rate")
         get_wav_info(wr)
         raise SystemExit
-    elif sample_width == 3:
-        print("Warning: support for 24bit WAV files is currently broken")
 
     dim=int(n_frames / sample_interval)
     song = numpy.empty(dim, float)
@@ -167,28 +165,43 @@ def _time_data(wr, sample_interval=1, max_frames=None):
             unpack_format += "ll"
         elif sample_width == 4:
             unpack_format += "ii"
+        elif sample_width == 2:
+            unpack_format += "hh"
         else:
-            for i in range(sample_width):
-                unpack_format += "h"
+            for i in range(int(sample_width)*2):
+                unpack_format += "B"
     elif wr.getsampclass() == float:
         for i in range(int(sample_width/2)):
             unpack_format += "f"
     #print("unpack format:", unpack_format)
 
-    # WAV files should have signed integer samples
+    # we assume WAV files with signed samples
     zero = 0 #(2 ** (sample_width * 8)) / 2
 
     #HRTime.tic()
-    for i in range(dim):
-        wave_data = wr.readframes(1)
-        wr.setpos(sample_interval * i)
+    if sample_width != 3:
+        # this probably assumes pcm_sXX samples with the same endianness as the host
+        for i in range(dim):
+            wave_data = wr.readframes(1)
+            wr.setpos(sample_interval * i)
 
-        data = struct.unpack(unpack_format, wave_data)
+            data = struct.unpack(unpack_format, wave_data)
+            chan0[i] = data[0]
+            chan1[i] = data[1]
 
-        chan0[i] = data[0]
-        chan1[i] = data[1]
+            song[i] = (data[0] + data[1]) / 2.0
+    else:
+        for i in range(dim):
+            wave_data = wr.readframes(1)
+            wr.setpos(sample_interval * i)
 
-        song[i] = (data[0] + data[1]) / 2.0
+            data = struct.unpack(unpack_format, wave_data)
+            # we assume pcm_s24le!
+            chan0[i] = int.from_bytes(data[0:3], 'little', signed=True)
+            chan1[i] = int.from_bytes(data[3:6], 'little', signed=True)
+            #print(data, chan0[i], chan1[i])
+
+            song[i] = (chan0[i] + chan1[i]) / 2.0
     max_sample = numpy.max(abs(song))
 
     print() #"Data read in", HRTime.toc(), "s")
