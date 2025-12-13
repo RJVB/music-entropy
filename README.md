@@ -3,7 +3,7 @@ music-entropy
 
 Finds Shannon's relative entropy of .wav files
 
-For now, only handles stereo, 16-bit sample width .wav files.
+For now, only handles stereo wav files with 16 and 32 bit int or 32 bit float samples.
 
 Usage
 ------
