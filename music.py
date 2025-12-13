@@ -128,6 +128,7 @@ def get_wav_info(file_name):
     num_frames = wr.getnframes()
     n_channels = wr.getnchannels()
     s = "sample width: {} bytes\n".format(sample_width) + \
+        "sample class: {}\n".format(wr.getsampclass().__name__) + \
         "frame rate: {} Hz\n".format(frame_rate) + \
         "num frames: {}\n".format(num_frames) + \
         "track length: {} s\n".format(num_frames / frame_rate) + \
@@ -161,7 +162,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     max_sample=-1;
 
     unpack_format = "<"
-    if wr.getsampformat() == int:
+    if wr.getsampclass() == int:
         if sample_width == 8:
             unpack_format += "ll"
         elif sample_width == 4:
@@ -169,7 +170,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         else:
             for i in range(sample_width):
                 unpack_format += "h"
-    elif wr.getsampformat() == float:
+    elif wr.getsampclass() == float:
         for i in range(int(sample_width/2)):
             unpack_format += "f"
     #print("unpack format:", unpack_format)
