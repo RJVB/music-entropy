@@ -8,7 +8,7 @@ import struct
 
 # math
 import numpy
-from numpy.fft import fft, fftfreq
+from numpy.fft import fft, fftfreq, rfft, rfftfreq
 import math
 
 # documentation
@@ -33,12 +33,15 @@ def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     print("\nfft'ing ...", end=' ', flush=True)
     song_fft = fft(song)
     print("length=", len(song_fft))
-    peak = numpy.max(song_fft)
-    at = numpy.where(song_fft==peak)
-    print("\tPeak", peak, "at", at)
+    peak = numpy.max(abs(song_fft))
+    at = numpy.where(abs(song_fft)==peak)[0]
+    frequencies = fftfreq(len(song), 1.0 / wr.getframerate())
+    print("\tPeak", peak, "at", frequencies[at], "Herz")
 
-    print("Calculating Shannon entropy")
-    return _shannon_rel_entropy(song_fft)
+    print("Calculating Shannon entropy and relative entropy ...", end=' ', flush=True)
+    entropy = _shannon_rel_entropy(song_fft)
+    print(entropy)
+    return entropy[1]
 
 @command
 def plot(domain, file_name, sample_interval=1, duration=-1):
@@ -49,16 +52,24 @@ def plot(domain, file_name, sample_interval=1, duration=-1):
         the Fast Fourier Transform of the .wav data.
 
     """
+    # try to get my KFusion style
+    from os import putenv
+    putenv("QT_STYLE_OVERRIDE", "KFusion")
+
+    import matplotlib
+    if matplotlib.get_backend() == 'agg':
+        # the default Qt backend must not be available; try
+        # to fall back on the less-complex-to-install GTk3 backend
+        matplotlib.use(backend='GTK3agg')
 
     if "time" in domain:
         _plot_time(file_name, sample_interval=sample_interval, duration=duration)
     if "freq" in domain:
         _plot_frequencies(file_name, sample_interval=sample_interval, duration=duration)
-
  
 def _plot_time(file_name, sample_interval=1, duration=-1):
     from pylab import plot as pyplot
-    from pylab import arange, xlabel, ylabel, title, grid, show
+    from pylab import xlabel, ylabel, title, grid, show
 
     try:
         sample_interval = int(sample_interval)
@@ -73,20 +84,22 @@ def _plot_time(file_name, sample_interval=1, duration=-1):
     else:
         maxframes = None
     song = _time_data(wr, sample_interval=sample_interval, max_frames=maxframes)
-    num_frames = wr.getnframes()
+    num_frames = int(maxframes) if maxframes else wr.getnframes()
 
-    t = arange(0.0, (num_frames - sample_interval) / frame_rate, sample_interval / frame_rate)
+    delta_t = sample_interval / frame_rate
+    t = numpy.arange(0.0, (num_frames - sample_interval) / frame_rate + delta_t, delta_t)
     
     pyplot(t, song)
 
     xlabel('time (s)')
-    ylabel('amplitude (maximum 2^8, minimum -2^8)')
+    ylabel('amplitude')
     title('Amplitude of track {} over time'.format(file_name))
     grid(True)
-    show()
+    show(block=True)
 
-def _plot_frequencies(file_name, sample_interval=1):
-    from pylab import bar, xlabel, ylabel, title, grid, show
+def _plot_frequencies(file_name, sample_interval=1, duration=-1):
+    from pylab import plot as pyplot
+    from pylab import xlabel, ylabel, title, grid, show
 
     try:
         sample_interval = int(sample_interval)
@@ -96,20 +109,24 @@ def _plot_frequencies(file_name, sample_interval=1):
 
     wr = wave.open(file_name, 'r')
     frame_rate = wr.getframerate()
+    duration=float(duration)
     if duration >= 0:
         maxframes = int(duration * frame_rate)
     else:
         maxframes = None
     song = _time_data(wr, sample_interval=sample_interval, max_frames=maxframes)
-    frequencies = fftfreq(len(song), 1 / frame_rate)
-    
-    bar(frequencies, [abs(z) for z in fft(song)])
+    frequencies = rfftfreq(len(song), 1 / frame_rate)
+
+    #ax = pyplot.axes(xlabel='frequency (Hz)',
+                     #ylabel='amplitude (complex modulus)',
+                     #title='Amplitudes of frequencies of track {}'.format(file_name))
+    pyplot(frequencies, numpy.abs(rfft(song)))
 
     xlabel('frequency (Hz)')
     ylabel('amplitude (complex modulus)')
     title('Amplitudes of frequencies of track {}'.format(file_name))
     grid(True)
-    show()
+    show(block=True)
 
 @command
 def get_wav_info(file_name):
@@ -237,7 +254,8 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     return song
 
 def _shannon_rel_entropy(song_fft):
-    return _entropy(song_fft) / math.log(len(song_fft), 2)
+    entropy = _entropy(song_fft)
+    return numpy.array([entropy, entropy / math.log(len(song_fft), 2)])
 
 #import HRTime
 def _entropy(song_fft):
