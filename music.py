@@ -185,15 +185,13 @@ def _time_data(wr, sample_interval=1, max_frames=None):
             unpack_format += "hh"
             #chan = numpy.empty([2,dim], numpy.int16)
         else:
-            chan = numpy.empty([2,dim], int)
-            for i in range(int(sample_width)*2):
-                unpack_format += "B"
+            #chan = numpy.empty([2,dim], int)
+            unpack_format += f'{int(sample_width*2)}B'
         dtype = f'<i{sample_width}'
     elif wr.getsampclass() == float:
-       #chan = numpy.empty([2,dim], float)
-       dtype = f'<f{sample_width}'
-       for i in range(int(sample_width/2)):
-            unpack_format += "f"
+        #chan = numpy.empty([2,dim], float)
+        dtype = f'<f{sample_width}'
+        unpack_format += f'{int(sample_width/2)}f'
 
     # we assume WAV files with signed samples
     #zero = 0 #(2 ** (sample_width * 8)) / 2
@@ -215,17 +213,29 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         #chan = chan.astype(float)
         chan = numpy.frombuffer(raw,dtype=dtype).reshape(dim,2).transpose().astype(float)
     else:
+        # the all-numpy solutions for extracting the channel data from the "raw" array are
+        # thanks to 'homer512' (https://stackoverflow.com/a/79847078/1460868)
+        bytelength = 1 << sample_width.bit_length()
+        rightshift = (bytelength - sample_width) * 8 # for sign extension
+        udtype = f'u{bytelength}'
+        idtype = f'i{bytelength}'
+        leftshifts = numpy.arange(rightshift, 8 * bytelength, 8, dtype=udtype)
+        raw = numpy.empty(dim,dtype=f'S{sample_width*2}')
         for i in range(dim):
             wave_data = wr.readframes(1)
             if sample_interval != 1:
                 wr.setpos(sample_interval * i)
 
-            data = struct.unpack(unpack_format, wave_data)
-            # we assume pcm_s24le!
-            chan[0,i] = int.from_bytes(data[0:3], 'little', signed=True)
-            chan[1,i] = int.from_bytes(data[3:6], 'little', signed=True)
-        chan = chan.astype(float)
-
+            #data = struct.unpack(unpack_format, wave_data)
+            ## we assume pcm_s24le!
+            #chan[0,i] = int.from_bytes(data[0:3], 'little', signed=True)
+            #chan[1,i] = int.from_bytes(data[3:6], 'little', signed=True)
+            raw[i] = wave_data
+        #chan = chan.astype(float)
+        chan = ((numpy.frombuffer(raw,dtype=f'<u1').reshape((dim, 2, sample_width)) << leftshifts) \
+                .sum(axis=-1, dtype=udtype).astype(idtype) >> rightshift) \
+                .transpose().astype(float)
+    raw = []
     # calculate the average of the 2 channels:
     song = numpy.mean(chan, axis=0)
     max_sample = numpy.max(abs(song))
