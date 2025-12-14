@@ -19,6 +19,7 @@ from api_docs import command, parse_args, help
 def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     """Get ratio of the song's entropy to the entropy of the Uniform
     distribution, optionally over the given duration in seconds.
+    <sample_interval> is currently ignored.
     """
     wr = wave.open(file_name, 'r')
 
@@ -51,6 +52,7 @@ def plot(domain, file_name, sample_interval=1, duration=-1):
     Parameters:
         <domain> can be 'time' or 'freq'. 'freq' plots the magnitudes of
         the Fast Fourier Transform of the .wav data.
+    <sample_interval> is currently ignored.
 
     """
     # try to get my KFusion style
@@ -170,7 +172,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         get_wav_info(wr)
         raise SystemExit
 
-    dim=int(n_frames / sample_interval)
+    dim=n_frames
     song = numpy.empty(dim, float)
 
     unpack_format = "<"
@@ -196,16 +198,33 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     # we assume WAV files with signed samples
     #zero = 0 #(2 ** (sample_width * 8)) / 2
 
+    chunksz = sample_width * 2
+    bytesize = n_frames * chunksz
+    blockread=int(min(bytesize,64*1024)/chunksz)
+    raw = numpy.empty(dim,dtype=f'S{chunksz}')
     #HRTime.tic()
     if sample_width != 3:
-        raw = numpy.empty(dim,dtype=f'S{sample_width*2}')
         # this probably assumes pcm_sXX samples with the same endianness as the host
-        for i in range(dim):
-            wave_data = wr.readframes(1)
-            if sample_interval != 1:
-                wr.setpos(sample_interval * i)
+        ii = 0
+        for i in range(0,dim,blockread):
+            wave_data = wr.readframes(blockread)
 
-            raw[i] = wave_data
+            # slice up in chunks what we actually read (the last
+            # read will most likely not be of size <blockread> -
+            # when we're reading the entire file!!)
+            splitrange = int(len(wave_data)/chunksz)
+            if splitrange + ii >= dim:
+                # this can happen when we're reading only part of a file; readframes()
+                # does not know about soft EOF so will return a full <blockread> buffer.
+                splitrange = dim - ii
+            for j in range(splitrange):
+                k = j * chunksz
+                raw[ii] = wave_data[k:k+chunksz]
+                #except:
+                    #print(i, j, wave_data, len(wave_data), blockread)
+                    #print("raw[", ii, "] = wave_data[", k, ":", k+chunksz, "]=", wave_data[k:k+chunksz])
+                    #raise SystemExit
+                ii += 1
             #data = struct.unpack(unpack_format, wave_data)
             ## this is actually faster than chan[:,i]=data !
             #chan[0,i] = data[0]
@@ -220,11 +239,8 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         udtype = f'u{bytelength}'
         idtype = f'i{bytelength}'
         leftshifts = numpy.arange(rightshift, 8 * bytelength, 8, dtype=udtype)
-        raw = numpy.empty(dim,dtype=f'S{sample_width*2}')
-        for i in range(dim):
+        for i in range(0,dim):
             wave_data = wr.readframes(1)
-            if sample_interval != 1:
-                wr.setpos(sample_interval * i)
 
             #data = struct.unpack(unpack_format, wave_data)
             ## we assume pcm_s24le!
