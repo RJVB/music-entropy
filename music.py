@@ -34,7 +34,8 @@ def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     song_fft = fft(song)
     print("length=", len(song_fft))
     peak = numpy.max(abs(song_fft))
-    at = numpy.where(abs(song_fft)==peak)[0]
+    #at = numpy.where(abs(song_fft)==peak)[0]
+    at = abs(song_fft).argmax()
     frequencies = fftfreq(len(song), 1.0 / wr.getframerate())
     print("\tPeak", peak, "at", frequencies[at], "Herz")
 
@@ -171,10 +172,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
 
     dim=int(n_frames / sample_interval)
     song = numpy.empty(dim, float)
-    chan0 = numpy.empty(dim, float)
-    chan1 = numpy.empty(dim, float)
-
-    max_sample=-1;
+    chan = numpy.empty([2,dim], float)
 
     unpack_format = "<"
     if wr.getsampclass() == int:
@@ -200,56 +198,56 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         # this probably assumes pcm_sXX samples with the same endianness as the host
         for i in range(dim):
             wave_data = wr.readframes(1)
-            wr.setpos(sample_interval * i)
+            if sample_interval != 1:
+                wr.setpos(sample_interval * i)
 
             data = struct.unpack(unpack_format, wave_data)
-            chan0[i] = data[0]
-            chan1[i] = data[1]
-
-            song[i] = (data[0] + data[1]) / 2.0
+            # this is actually faster than chan[:,i]=data !
+            chan[0,i] = data[0]
+            chan[1,i] = data[1]
     else:
         for i in range(dim):
             wave_data = wr.readframes(1)
-            wr.setpos(sample_interval * i)
+            if sample_interval != 1:
+                wr.setpos(sample_interval * i)
 
             data = struct.unpack(unpack_format, wave_data)
             # we assume pcm_s24le!
-            chan0[i] = int.from_bytes(data[0:3], 'little', signed=True)
-            chan1[i] = int.from_bytes(data[3:6], 'little', signed=True)
-            #print(data, chan0[i], chan1[i])
+            chan[0,i] = int.from_bytes(data[0:3], 'little', signed=True)
+            chan[1,i] = int.from_bytes(data[3:6], 'little', signed=True)
 
-            song[i] = (chan0[i] + chan1[i]) / 2.0
+    # calculate the average of the 2 channels:
+    song = numpy.mean(chan, axis=0)
     max_sample = numpy.max(abs(song))
 
     print() #"Data read in", HRTime.toc(), "s")
 
     time_base = float(sample_interval) / float(frame_rate);
-    chan0 -= zero
-    chan1 -= zero
-    max_amp0 = numpy.max(abs(chan0))
+    chan -= zero
+    max_amp0 = numpy.max(abs(chan[0]))
     #if max_amp0 == 0:
         #print("chan0 range,av,stdev:", numpy.min(chan0), numpy.max(chan0), numpy.mean(chan0), numpy.std(chan0))
-    max_amp1 = numpy.max(abs(chan1))
+    max_amp1 = numpy.max(abs(chan[1]))
     print("Max abs. channel-0 sample value:", max_amp0)
     print("Max abs. channel-1 sample value:", max_amp1)
-    chan0 /= max_amp0
-    chan1 /= max_amp1
-    min_amp0 = numpy.min(chan0)
-    max_amp0 = numpy.max(chan0)
-    print("Normalised chan0 range: [", min_amp0, "at t=", numpy.where(chan0 == min_amp0)[0] * time_base, "seconds",
-          "] -\n\t[", max_amp0, "at t=", numpy.where(chan0 == max_amp0)[0] * time_base, "seconds ]")
-    min_amp1 = numpy.min(chan1)
-    max_amp1 = numpy.max(chan1)
-    print("Normalised chan1 range: [", min_amp1, "at t=", numpy.where(chan1 == min_amp1)[0] * time_base, "seconds",
-          "] -\n\t[", max_amp1, "at t=", numpy.where(chan1 == max_amp1)[0] * time_base, "seconds ]")
+    chan[0] /= max_amp0
+    chan[1] /= max_amp1
+    min_amp0 = numpy.min(chan[0])
+    max_amp0 = numpy.max(chan[0])
+    print("Normalised chan0 range: [", min_amp0, "at t=", chan[0].argmin() * time_base, "seconds",
+          "] -\n\t[", max_amp0, "at t=", chan[0].argmax() * time_base, "seconds ]")
+    min_amp1 = numpy.min(chan[1])
+    max_amp1 = numpy.max(chan[1])
+    print("Normalised chan1 range: [", min_amp1, "at t=", chan[1].argmin() * time_base, "seconds",
+          "] -\n\t[", max_amp1, "at t=", chan[1].argmax() * time_base, "seconds ]")
 
     song -= zero;
     print("\nMax abs. channel-mix sample value:", max_sample)
     song /= max_sample
     min_sample = numpy.min(song)
     max_sample = numpy.max(song)
-    print("Normalised range: [", min_sample, "at t=", numpy.where(song == min_sample)[0] * time_base, "seconds",
-          "] -\n\t[", max_sample, "at t=", numpy.where(song == max_sample)[0] * time_base, "seconds ]")
+    print("Normalised range: [", min_sample, "at t=", song.argmin() * time_base, "seconds",
+          "] -\n\t[", max_sample, "at t=", song.argmax() * time_base, "seconds ]")
 
     return song
 
