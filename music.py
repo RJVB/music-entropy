@@ -172,40 +172,49 @@ def _time_data(wr, sample_interval=1, max_frames=None):
 
     dim=int(n_frames / sample_interval)
     song = numpy.empty(dim, float)
-    chan = numpy.empty([2,dim], float)
 
     unpack_format = "<"
     if wr.getsampclass() == int:
         if sample_width == 8:
             unpack_format += "ll"
+            chan = numpy.empty([2,dim], long)
         elif sample_width == 4:
             unpack_format += "ii"
+            chan = numpy.empty([2,dim], int)
         elif sample_width == 2:
             unpack_format += "hh"
+            chan = numpy.empty([2,dim], numpy.int16)
         else:
+            chan = numpy.empty([2,dim], int)
             for i in range(int(sample_width)*2):
                 unpack_format += "B"
+        dtype = f'<i{sample_width}'
     elif wr.getsampclass() == float:
-        for i in range(int(sample_width/2)):
+       chan = numpy.empty([2,dim], float)
+       for i in range(int(sample_width/2)):
             unpack_format += "f"
     #print("unpack format:", unpack_format)
 
     # we assume WAV files with signed samples
-    zero = 0 #(2 ** (sample_width * 8)) / 2
+    #zero = 0 #(2 ** (sample_width * 8)) / 2
 
     #HRTime.tic()
     if sample_width != 3:
+        raw = numpy.empty(dim,dtype=f'S{sample_width*2}')
         # this probably assumes pcm_sXX samples with the same endianness as the host
         for i in range(dim):
             wave_data = wr.readframes(1)
             if sample_interval != 1:
                 wr.setpos(sample_interval * i)
 
-            data = struct.unpack(unpack_format, wave_data)
-            # this is actually faster than chan[:,i]=data !
-            chan[0,i] = data[0]
-            chan[1,i] = data[1]
+            raw[i] = wave_data
+            #data = struct.unpack(unpack_format, wave_data)
+            ## this is actually faster than chan[:,i]=data !
+            #chan[0,i] = data[0]
+            #chan[1,i] = data[1]
+        chan = numpy.frombuffer(raw,dtype=dtype).reshape(dim,2).transpose().astype(float)
     else:
+        chan = numpy.empty([2,dim], float)
         for i in range(dim):
             wave_data = wr.readframes(1)
             if sample_interval != 1:
@@ -215,6 +224,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
             # we assume pcm_s24le!
             chan[0,i] = int.from_bytes(data[0:3], 'little', signed=True)
             chan[1,i] = int.from_bytes(data[3:6], 'little', signed=True)
+        chan = chan.astype(float)
 
     # calculate the average of the 2 channels:
     song = numpy.mean(chan, axis=0)
@@ -223,7 +233,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     print() #"Data read in", HRTime.toc(), "s")
 
     time_base = float(sample_interval) / float(frame_rate);
-    chan -= zero
+    #chan -= zero
     max_amp0 = numpy.max(abs(chan[0]))
     #if max_amp0 == 0:
         #print("chan0 range,av,stdev:", numpy.min(chan0), numpy.max(chan0), numpy.mean(chan0), numpy.std(chan0))
@@ -241,7 +251,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     print("Normalised chan1 range: [", min_amp1, "at t=", chan[1].argmin() * time_base, "seconds",
           "] -\n\t[", max_amp1, "at t=", chan[1].argmax() * time_base, "seconds ]")
 
-    song -= zero;
+    #song -= zero;
     print("\nMax abs. channel-mix sample value:", max_sample)
     song /= max_sample
     min_sample = numpy.min(song)
