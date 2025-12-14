@@ -177,24 +177,23 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     if wr.getsampclass() == int:
         if sample_width == 8:
             unpack_format += "ll"
-            chan = numpy.empty([2,dim], long)
+            #chan = numpy.empty([2,dim], long)
         elif sample_width == 4:
             unpack_format += "ii"
-            chan = numpy.empty([2,dim], int)
+            #chan = numpy.empty([2,dim], int)
         elif sample_width == 2:
             unpack_format += "hh"
-            chan = numpy.empty([2,dim], numpy.int16)
+            #chan = numpy.empty([2,dim], numpy.int16)
         else:
             chan = numpy.empty([2,dim], int)
             for i in range(int(sample_width)*2):
                 unpack_format += "B"
         dtype = f'<i{sample_width}'
     elif wr.getsampclass() == float:
-       chan = numpy.empty([2,dim], float)
+       #chan = numpy.empty([2,dim], float)
        dtype = f'<f{sample_width}'
        for i in range(int(sample_width/2)):
             unpack_format += "f"
-    #print("unpack format:", unpack_format)
 
     # we assume WAV files with signed samples
     #zero = 0 #(2 ** (sample_width * 8)) / 2
@@ -216,7 +215,6 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         #chan = chan.astype(float)
         chan = numpy.frombuffer(raw,dtype=dtype).reshape(dim,2).transpose().astype(float)
     else:
-        chan = numpy.empty([2,dim], float)
         for i in range(dim):
             wave_data = wr.readframes(1)
             if sample_interval != 1:
