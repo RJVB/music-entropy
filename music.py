@@ -38,8 +38,8 @@ def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     print("length=", len(track_fft))
     at = abs(track_fft).argmax()
     frequencies = fftfreq(len(track), 1.0 / wr.getframerate())
-    print("\tPeak(s)", abs(track_fft)[at], "at", frequencies[at], "Hz")
-    print("\tDC :", abs(track_fft[0]), "at", frequencies[0], "Hz")
+    print("\tPeak(s)", abs(track_fft)[at]/len(track_fft), "at", frequencies[at], "Hz")
+    print("\tDC :", abs(track_fft[0])/len(track_fft), "at", frequencies[0], "Hz")
 
     print("Calculating Shannon entropy and relative entropy ...", end=' ', flush=True)
     entropy = _shannon_rel_entropy(track_fft)
@@ -124,10 +124,10 @@ def _plot_frequencies(file_name, sample_interval=1, duration=-1):
     #ax = pyplot.axes(xlabel='frequency (Hz)',
                      #ylabel='amplitude (complex modulus)',
                      #title='Amplitudes of frequencies of track {}'.format(file_name))
-    pyplot(frequencies, numpy.abs(rfft(track)))
+    pyplot(frequencies, numpy.abs(rfft(track))/len(frequencies))
 
     xlabel('frequency (Hz)')
-    ylabel('amplitude (complex modulus)')
+    ylabel('amplitude (complex modulus) / N')
     title('Amplitudes of frequencies of track {}'.format(file_name))
     grid(True)
     show(block=True)
