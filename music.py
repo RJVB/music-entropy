@@ -6,6 +6,8 @@
 import wave
 import struct
 
+import sys
+
 # math
 import numpy
 from numpy.fft import fft, fftfreq, rfft, rfftfreq
@@ -210,6 +212,9 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     #HRTime.tic()
     # this probably assumes pcm_sXX samples with the same endianness as the host
     if blockread > 0:
+        # use `numpy.empty` (everywhere) to create arrays because that way any non-initialised
+        # bins should cause a varying output result that should alert the user
+        # (we're supposed to allocate and initialise the exact required number of bins!)
         raw = numpy.empty(dim,dtype=f'S{chunksz}')
         ii = 0
         for i in range(0,dim,blockread):
@@ -218,23 +223,31 @@ def _time_data(wr, sample_interval=1, max_frames=None):
             # slice up in chunks what we actually read (the last
             # read will most likely not be of size <blockread> -
             # when we're reading the entire file!!)
-            splitrange = int(len(wave_data)/chunksz)
+            wave_len = len(wave_data)
+            splitrange = int(wave_len/chunksz)
             if splitrange + ii >= dim:
                 # this can happen when we're reading only part of a file; readframes()
                 # does not know about soft EOF so will return a full <blockread> buffer.
                 splitrange = dim - ii
+                wave_data = wave_data[0:int(splitrange * chunksz)]
+                #print("reduced splitrange=", splitrange, "; len wave_data from", wave_len, "to", len(wave_data))
+                wave_len = len(wave_data)
             elif splitrange == 0:
                 # should never happen, and bumping to 1 will probably raise an error,
                 # but that might be better than letting the situation slide?!
                 splitrange = 1
-            for j in range(splitrange):
-                k = j * chunksz
-                raw[ii] = wave_data[k:k+chunksz]
-                #except:
-                    #print(i, j, wave_data, len(wave_data), blockread)
-                    #print("raw[", ii, "] = wave_data[", k, ":", k+chunksz, "]=", wave_data[k:k+chunksz])
-                    #raise SystemExit
-                ii += 1
+            # creating wave_values with numpy.array(wave_data) works and gives an identical
+            # array, but the view() method will complain that
+            # ValueError: Changing the dtype of a 0d array is only supported if the itemsize is unchanged ...
+            wave_values = numpy.empty(1,dtype=f'S{wave_len}')
+            wave_values[0] = wave_data
+            #try:
+            raw[ii:ii+splitrange] = wave_values.view(f'S{chunksz}')
+            #print(i,ii,splitrange,wave_len)
+            ii = i + splitrange
+            #except:
+                #print(i,ii,splitrange,wave_len)
+                #raise sys.exc_info()[1]
     # the all-numpy solutions for extracting the channel data from the "raw" array are
     # thanks to 'homer512' (https://stackoverflow.com/a/79847078/1460868)
     if sample_width != 3:
