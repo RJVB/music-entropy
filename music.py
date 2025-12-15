@@ -34,11 +34,10 @@ def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     print("\nfft'ing ...", end=' ', flush=True)
     song_fft = fft(song)
     print("length=", len(song_fft))
-    peak = numpy.max(abs(song_fft))
-    #at = numpy.where(abs(song_fft)==peak)[0]
     at = abs(song_fft).argmax()
     frequencies = fftfreq(len(song), 1.0 / wr.getframerate())
-    print("\tPeak", peak, "at", frequencies[at], "Herz")
+    print("\tPeak(s)", abs(song_fft)[at], "at", frequencies[at], "Hz")
+    print("\tDC :", abs(song_fft[0]), "at", frequencies[0], "Hz")
 
     print("Calculating Shannon entropy and relative entropy ...", end=' ', flush=True)
     entropy = _shannon_rel_entropy(song_fft)
@@ -168,43 +167,50 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     n_channels = wr.getnchannels()
     ## if n_channels != 2 or sample_width != 2 or frame_rate != 44100:
     if n_channels != 2 or not sample_width in [2,3,4,8]:
-        print("Wrong sample width or frame rate")
+        print("Unsupported sample width or frame rate")
         get_wav_info(wr)
         raise SystemExit
 
     dim=n_frames
-    song = numpy.empty(dim, float)
 
-    unpack_format = "<"
+    chunksz = sample_width * 2
+    bytesize = n_frames * chunksz
+    # let readframes() read in chunks that are approx. 64k bytes
+    # worth of frames or the entire file, whichever is smaller.
+    # (set blockread to 0 to fall back to the original 1-frame
+    # method, preserved for debugging purposes.)
+    blockread = int(min(bytesize,64*1024)/chunksz)
+
+    if blockread == 0:
+        unpack_format = "<"
     if wr.getsampclass() == int:
-        if sample_width == 8:
-            unpack_format += "ll"
-            #chan = numpy.empty([2,dim], long)
-        elif sample_width == 4:
-            unpack_format += "ii"
-            #chan = numpy.empty([2,dim], int)
-        elif sample_width == 2:
-            unpack_format += "hh"
-            #chan = numpy.empty([2,dim], numpy.int16)
-        else:
-            #chan = numpy.empty([2,dim], int)
-            unpack_format += f'{int(sample_width*2)}B'
+        if blockread == 0:
+            if sample_width == 8:
+                unpack_format += "ll"
+                chan = numpy.empty([2,dim], long)
+            elif sample_width == 4:
+                unpack_format += "ii"
+                chan = numpy.empty([2,dim], int)
+            elif sample_width == 2:
+                unpack_format += "hh"
+                chan = numpy.empty([2,dim], numpy.int16)
+            else:
+                chan = numpy.empty([2,dim], int)
+                unpack_format += f'{int(sample_width*2)}B'
         dtype = f'<i{sample_width}'
     elif wr.getsampclass() == float:
-        #chan = numpy.empty([2,dim], float)
+        if blockread == 0:
+            chan = numpy.empty([2,dim], float)
+            unpack_format += f'{int(sample_width/2)}f'
         dtype = f'<f{sample_width}'
-        unpack_format += f'{int(sample_width/2)}f'
 
     # we assume WAV files with signed samples
     #zero = 0 #(2 ** (sample_width * 8)) / 2
 
-    chunksz = sample_width * 2
-    bytesize = n_frames * chunksz
-    blockread=int(min(bytesize,64*1024)/chunksz)
-    raw = numpy.empty(dim,dtype=f'S{chunksz}')
     #HRTime.tic()
-    if sample_width != 3:
-        # this probably assumes pcm_sXX samples with the same endianness as the host
+    # this probably assumes pcm_sXX samples with the same endianness as the host
+    if blockread > 0:
+        raw = numpy.empty(dim,dtype=f'S{chunksz}')
         ii = 0
         for i in range(0,dim,blockread):
             wave_data = wr.readframes(blockread)
@@ -217,6 +223,10 @@ def _time_data(wr, sample_interval=1, max_frames=None):
                 # this can happen when we're reading only part of a file; readframes()
                 # does not know about soft EOF so will return a full <blockread> buffer.
                 splitrange = dim - ii
+            elif splitrange == 0:
+                # should never happen, and bumping to 1 will probably raise an error,
+                # but that might be better than letting the situation slide?!
+                splitrange = 1
             for j in range(splitrange):
                 k = j * chunksz
                 raw[ii] = wave_data[k:k+chunksz]
@@ -225,32 +235,39 @@ def _time_data(wr, sample_interval=1, max_frames=None):
                     #print("raw[", ii, "] = wave_data[", k, ":", k+chunksz, "]=", wave_data[k:k+chunksz])
                     #raise SystemExit
                 ii += 1
-            #data = struct.unpack(unpack_format, wave_data)
-            ## this is actually faster than chan[:,i]=data !
-            #chan[0,i] = data[0]
-            #chan[1,i] = data[1]
-        #chan = chan.astype(float)
-        chan = numpy.frombuffer(raw,dtype=dtype).reshape(dim,2).transpose().astype(float)
-    else:
-        # the all-numpy solutions for extracting the channel data from the "raw" array are
-        # thanks to 'homer512' (https://stackoverflow.com/a/79847078/1460868)
-        bytelength = 1 << sample_width.bit_length()
-        rightshift = (bytelength - sample_width) * 8 # for sign extension
-        udtype = f'u{bytelength}'
-        idtype = f'i{bytelength}'
-        leftshifts = numpy.arange(rightshift, 8 * bytelength, 8, dtype=udtype)
-        for i in range(0,dim):
-            wave_data = wr.readframes(1)
+    # the all-numpy solutions for extracting the channel data from the "raw" array are
+    # thanks to 'homer512' (https://stackoverflow.com/a/79847078/1460868)
+    if sample_width != 3:
+        if blockread == 0:
+            for i in range(0,dim):
+                wave_data = wr.readframes(1)
 
-            #data = struct.unpack(unpack_format, wave_data)
-            ## we assume pcm_s24le!
-            #chan[0,i] = int.from_bytes(data[0:3], 'little', signed=True)
-            #chan[1,i] = int.from_bytes(data[3:6], 'little', signed=True)
-            raw[i] = wave_data
-        #chan = chan.astype(float)
-        chan = ((numpy.frombuffer(raw,dtype=f'<u1').reshape((dim, 2, sample_width)) << leftshifts) \
-                .sum(axis=-1, dtype=udtype).astype(idtype) >> rightshift) \
-                .transpose().astype(float)
+                data = struct.unpack(unpack_format, wave_data)
+                # this is actually faster than chan[:,i]=data !
+                chan[0,i] = data[0]
+                chan[1,i] = data[1]
+            chan = chan.astype(float)
+        else:
+            chan = numpy.frombuffer(raw,dtype=dtype).reshape(dim,2).transpose().astype(float)
+    else:
+        if blockread == 0:
+            for i in range(0,dim):
+                wave_data = wr.readframes(1)
+
+                data = struct.unpack(unpack_format, wave_data)
+                # we assume pcm_s24le!
+                chan[0,i] = int.from_bytes(data[0:3], 'little', signed=True)
+                chan[1,i] = int.from_bytes(data[3:6], 'little', signed=True)
+            chan = chan.astype(float)
+        else:
+            bytelength = 1 << sample_width.bit_length()
+            rightshift = (bytelength - sample_width) * 8 # for sign extension
+            udtype = f'u{bytelength}'
+            idtype = f'i{bytelength}'
+            leftshifts = numpy.arange(rightshift, 8 * bytelength, 8, dtype=udtype)
+            chan = ((numpy.frombuffer(raw,dtype=f'<u1').reshape((dim, 2, sample_width)) << leftshifts) \
+                    .sum(axis=-1, dtype=udtype).astype(idtype) >> rightshift) \
+                    .transpose().astype(float)
     raw = []
     # calculate the average of the 2 channels:
     song = numpy.mean(chan, axis=0)
