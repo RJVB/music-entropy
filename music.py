@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Command line utility for evaluating song entropy"""
+"""Command line utility for evaluating an audio track's entropy"""
 
 # file I/O
 import wave
@@ -19,7 +19,7 @@ from api_docs import command, parse_args, help
 
 @command
 def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
-    """Get ratio of the song's entropy to the entropy of the Uniform
+    """Get ratio of the track's entropy to the entropy of the Uniform
     distribution, optionally over the given duration in seconds.
     <sample_interval> is currently ignored.
     """
@@ -28,21 +28,21 @@ def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     duration=float(duration)
     if duration >= 0:
         print("Reading", duration, "seconds from file, sample interval", sample_interval, "...", end=' ', flush=True)
-        song = _time_data(wr,sample_interval=sample_interval, max_frames=int(duration * wr.getframerate()))
+        track = _time_data(wr,sample_interval=sample_interval, max_frames=int(duration * wr.getframerate()))
     else:
         print("Reading entire file, sample interval", sample_interval, "...", end=' ', flush=True)
-        song = _time_data(wr, sample_interval=sample_interval)
+        track = _time_data(wr, sample_interval=sample_interval)
 
     print("\nfft'ing ...", end=' ', flush=True)
-    song_fft = fft(song)
-    print("length=", len(song_fft))
-    at = abs(song_fft).argmax()
-    frequencies = fftfreq(len(song), 1.0 / wr.getframerate())
-    print("\tPeak(s)", abs(song_fft)[at], "at", frequencies[at], "Hz")
-    print("\tDC :", abs(song_fft[0]), "at", frequencies[0], "Hz")
+    track_fft = fft(track)
+    print("length=", len(track_fft))
+    at = abs(track_fft).argmax()
+    frequencies = fftfreq(len(track), 1.0 / wr.getframerate())
+    print("\tPeak(s)", abs(track_fft)[at], "at", frequencies[at], "Hz")
+    print("\tDC :", abs(track_fft[0]), "at", frequencies[0], "Hz")
 
     print("Calculating Shannon entropy and relative entropy ...", end=' ', flush=True)
-    entropy = _shannon_rel_entropy(song_fft)
+    entropy = _shannon_rel_entropy(track_fft)
     print(entropy)
     return entropy[1]
 
@@ -87,13 +87,13 @@ def _plot_time(file_name, sample_interval=1, duration=-1):
         maxframes = int(duration * frame_rate)
     else:
         maxframes = None
-    song = _time_data(wr, sample_interval=sample_interval, max_frames=maxframes)
+    track = _time_data(wr, sample_interval=sample_interval, max_frames=maxframes)
     num_frames = int(maxframes) if maxframes else wr.getnframes()
 
     delta_t = sample_interval / frame_rate
     t = numpy.arange(0.0, (num_frames - sample_interval) / frame_rate + delta_t, delta_t)
     
-    pyplot(t, song)
+    pyplot(t, track)
 
     xlabel('time (s)')
     ylabel('amplitude')
@@ -118,13 +118,13 @@ def _plot_frequencies(file_name, sample_interval=1, duration=-1):
         maxframes = int(duration * frame_rate)
     else:
         maxframes = None
-    song = _time_data(wr, sample_interval=sample_interval, max_frames=maxframes)
-    frequencies = rfftfreq(len(song), 1 / frame_rate)
+    track = _time_data(wr, sample_interval=sample_interval, max_frames=maxframes)
+    frequencies = rfftfreq(len(track), 1 / frame_rate)
 
     #ax = pyplot.axes(xlabel='frequency (Hz)',
                      #ylabel='amplitude (complex modulus)',
                      #title='Amplitudes of frequencies of track {}'.format(file_name))
-    pyplot(frequencies, numpy.abs(rfft(song)))
+    pyplot(frequencies, numpy.abs(rfft(track)))
 
     xlabel('frequency (Hz)')
     ylabel('amplitude (complex modulus)')
@@ -283,8 +283,8 @@ def _time_data(wr, sample_interval=1, max_frames=None):
                     .transpose().astype(float)
     raw = []
     # calculate the average of the 2 channels:
-    song = numpy.mean(chan, axis=0)
-    max_sample = numpy.max(abs(song))
+    track = numpy.mean(chan, axis=0)
+    max_sample = numpy.max(abs(track))
 
     print() #"Data read in", HRTime.toc(), "s")
 
@@ -307,41 +307,41 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     print("Normalised chan1 range: [", min_amp1, "at t=", chan[1].argmin() * time_base, "seconds",
           "] -\n\t[", max_amp1, "at t=", chan[1].argmax() * time_base, "seconds ]")
 
-    #song -= zero;
+    #track -= zero;
     print("\nMax abs. channel-mix sample value:", max_sample)
-    song /= max_sample
-    min_sample = numpy.min(song)
-    max_sample = numpy.max(song)
-    print("Normalised range: [", min_sample, "at t=", song.argmin() * time_base, "seconds",
-          "] -\n\t[", max_sample, "at t=", song.argmax() * time_base, "seconds ]")
+    track /= max_sample
+    min_sample = numpy.min(track)
+    max_sample = numpy.max(track)
+    print("Normalised range: [", min_sample, "at t=", track.argmin() * time_base, "seconds",
+          "] -\n\t[", max_sample, "at t=", track.argmax() * time_base, "seconds ]")
 
-    return song
+    return track
 
-def _shannon_rel_entropy(song_fft):
-    entropy = _entropy(song_fft)
-    return numpy.array([entropy, entropy / math.log(len(song_fft), 2)])
+def _shannon_rel_entropy(track_fft):
+    entropy = _entropy(track_fft)
+    return numpy.array([entropy, entropy / math.log(len(track_fft), 2)])
 
 #import HRTime
-def _entropy(song_fft):
+def _entropy(track_fft):
     # normalise the fft
     #HRTime.tic()
 
-    #total_weight = sum([abs(z) for z in song_fft])
-    #total_weight = sum(numpy.abs(song_fft))
-    #song_entropy = 0
+    #total_weight = sum([abs(z) for z in track_fft])
+    #total_weight = sum(numpy.abs(track_fft))
+    #track_entropy = 0
     #p_x_sum = 0
-    #for z in song_fft:
+    #for z in track_fft:
         #p_x = (abs(z)/total_weight)
         #p_x_sum += p_x
-        #song_entropy += p_x * math.log(1/p_x, 2)
+        #track_entropy += p_x * math.log(1/p_x, 2)
 
     # use numpy's array arithmatic, which is a good 5x faster
-    total_weight = sum(numpy.abs(song_fft))
-    p_x = numpy.abs(song_fft) / total_weight
-    song_entropy = sum( p_x * numpy.log2(1/p_x) )
+    total_weight = sum(numpy.abs(track_fft))
+    p_x = numpy.abs(track_fft) / total_weight
+    track_entropy = sum( p_x * numpy.log2(1/p_x) )
 
     #print("entropy calculated in", HRTime.toc(), "s")
-    return song_entropy
+    return track_entropy
 
 if __name__ == '__main__':
     parse_args()
