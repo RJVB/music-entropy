@@ -41,6 +41,22 @@ def get_shannon_rel_entropy(file_name, sample_interval=1, duration=-1):
     print("\tPeak(s)", abs(track_fft)[at]/len(track_fft), "at", frequencies[at], "Hz")
     print("\tDC :", abs(track_fft[0])/len(track_fft), "at", frequencies[0], "Hz")
 
+    # show some data about the average frequency of the sample.
+    # For this, we want the regular/asymmetric spectrum; just calculating it
+    # with rfft() turns out to be about as expensive as only taking the already
+    # calculated values for frequencies>0 !
+    #posfreqs = numpy.where(frequencies > 0)
+    print("\tAverage frequency and std. deviation:", end=' ', flush=True)
+    rfrequencies = rfftfreq(len(track), 1.0 / wr.getframerate()) #frequencies[posfreqs]
+    track_rfft = rfft(track) #track_fft[posfreqs]
+    posfreqs = []
+    n = len(track_rfft)
+    # the unweighted average should just be 1/4th of the sampling rate
+    print(numpy.average(rfrequencies), "+-", numpy.std(rfrequencies), "Hz")
+    wavstd = weighted_avg_and_std(rfrequencies, abs(track_rfft))
+    print("\tAmplitude-weighted average frequency and std. deviation:", wavstd[0], "+-", wavstd[1], "Hz")
+    rfrequencies = track_rfft = []
+
     print("Calculating Shannon entropy and relative entropy ...", end=' ', flush=True)
     entropy = _shannon_rel_entropy(track_fft)
     print(entropy)
@@ -342,6 +358,21 @@ def _entropy(track_fft):
 
     #print("entropy calculated in", HRTime.toc(), "s")
     return track_entropy
+
+# from https://stackoverflow.com/a/2415343/1460868 :
+def weighted_avg_and_std(values, weights):
+    """
+    Return the weighted average and standard deviation.
+
+    They weights are in effect first normalised so that they 
+    sum to 1 (and so they must not all be 0).
+
+    values, weights -- NumPy ndarrays with the same shape.
+    """
+    average = numpy.average(values, weights=weights)
+    # Fast and numerically precise:
+    variance = numpy.average((values-average)**2, weights=weights)
+    return (average, math.sqrt(variance))
 
 if __name__ == '__main__':
     parse_args()
