@@ -50,6 +50,8 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
 
     N = rfft_data[3]
     Fav = 10**rfft_data[1]
+    #rfft_data = (rfft_data[0], rfft_data[1], 0.1, rfft_data[3])
+    Fstd_est = (10**(rfft_data[1]+rfft_data[2]) - 10**(rfft_data[1]-rfft_data[2])) / 2.0
     if N % Fav > Fav / 2.0:
         # increase the number of samples so that we get as close as possible
         # an integer number of cycles of the the average frequency in the array:
@@ -65,7 +67,7 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     # we don't want to scale the original DC component, so we set that last:
     bell[0] = abs(rfft_data[0][0])
     abell = abs(bell)
-    print("bell:", np.min(abell), np.max(abell), bell[int(10**rfft_data[1])], np.average(abell), np.std(abell))
+    print("bell:", np.min(abell), np.max(abell), bell[int(Fav)], np.average(abell), np.std(abell))
     rfrequencies = []
     abell = []
 
@@ -81,7 +83,7 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     f = np.array(bell, dtype='complex')
     Np = (len(f) - 1) // 2
     # I don't like the random aspect here but can't seem to be able to do without
-    phases = np.random.normal(rfft_data[1], rfft_data[2], Np) * 2 * np.pi
+    phases = np.random.normal(Fav, Fstd_est, Np) * 2 * np.pi
     phases = np.cos(phases) + 1j * np.sin(phases)
     f[1:Np+1] *= phases
     phases = []
@@ -208,7 +210,7 @@ def _plot_time(file_name, sample_interval=1, duration=-1):
 
 def _plot_frequencies(file_name, sample_interval=1, duration=-1):
     from pylab import plot as pyplot
-    from pylab import xlabel, ylabel, title, grid, show
+    from pylab import scatter, xlabel, ylabel, title, grid, show
 
     try:
         sample_interval = int(sample_interval)
@@ -238,6 +240,16 @@ def _plot_frequencies(file_name, sample_interval=1, duration=-1):
     print("\tAmplitude-weighted log-average frequency and std. deviation:", 10**wavstd[0], "+-",stdev_est, "Hz")
     bell = gaussian(np.log10(frequencies[1:N]), wavstd[0], wavstd[1])
     bell *= np.max(amps) / np.max(bell)
+    if False:
+        f = np.array(bell, dtype='complex')
+        Np = (len(f) - 1) // 2
+        # I don't like the random aspect here but can't seem to be able to do without
+        phases = np.random.normal(10**wavstd[0], stdev_est, Np) * 2 * np.pi
+        phases = np.cos(phases) + 1j * np.sin(phases)
+        f[1:Np+1] *= phases
+        phases = []
+        f[-1:-1-Np:-1] = np.conj(f[1:Np+1])
+        scatter(frequencies[1:N], (f.real+f.imag)/2, s=1, marker=",")
     pyplot(frequencies[1:N], bell)
 
     xlabel('frequency (Hz)')
