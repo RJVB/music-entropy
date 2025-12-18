@@ -47,7 +47,15 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     # sneakily take the max excluding the DC component
     rfft_max = np.max(abs(rfft_data[0][1:]))
     print("rfft:", np.min(abs(rfft_data[0])), rfft_max, rfft_data[1], rfft_data[2])
-    rfrequencies = rfftfreq(rfft_data[3], 0.5 / wr.getframerate())
+
+    N = rfft_data[3]
+    Fav = 10**rfft_data[1]
+    if N % Fav > Fav / 2.0:
+        # increase the number of samples so that we get as close as possible
+        # an integer number of cycles of the the average frequency in the array:
+        N = int(Fav * (N // Fav + 1.0))
+    print("Sample length", N, "can hold", N / Fav, "cycles of the average spectrum frequency", Fav, "Hz")
+    rfrequencies = rfftfreq(N, 0.5 / wr.getframerate())
 
     N = len(rfrequencies)
     bell = np.empty(N, dtype=rfft_data[0].dtype)
@@ -58,6 +66,7 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     bell[0] = abs(rfft_data[0][0])
     abell = abs(bell)
     print("bell:", np.min(abell), np.max(abell), bell[int(10**rfft_data[1])], np.average(abell), np.std(abell))
+    rfrequencies = []
     abell = []
 
     # this re-generates the original, mono sound:
@@ -280,6 +289,9 @@ def _time_data(wr, sample_interval=1, max_frames=None):
         print("Unsupported sample width or frame rate:")
         print(_get_wav_info(wr))
         raise SystemExit
+    if n_frames > wr.getnframes():
+        n_frames = wr.getnframes()
+        print("Warning: can only read", n_frames/frame_rate, "s from file!")
 
     dim=n_frames
 
