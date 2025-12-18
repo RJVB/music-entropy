@@ -38,16 +38,16 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     """Reads <input_filename>, determines its 1D real-input DFFT
     (i.e. the usual spectrum), generates a synthetic tone from that
     spectrum (i.e. the IDFFT) and writes it to <output_filename>
-    which will be a 32-bit, mono wav file of the same duration
+    which will be a 32-bit, mono wav file of half the duration
     as the input.
-    DOES NOT WORK (YET)
+    DOES NOT WORK AS I'D LIKE (YET)
     """
     wr = wave.open(input_filename, 'r')
     rfft_data = get_track_fft(wr, 1, duration, True)
     # sneakily take the max excluding the DC component
     rfft_max = np.max(abs(rfft_data[0][1:]))
     print("rfft:", np.min(abs(rfft_data[0])), rfft_max, rfft_data[1], rfft_data[2])
-    rfrequencies = rfftfreq(rfft_data[3], 1.0 / wr.getframerate())
+    rfrequencies = rfftfreq(rfft_data[3], 0.5 / wr.getframerate())
 
     N = len(rfrequencies)
     bell = np.empty(N, dtype=rfft_data[0].dtype)
@@ -55,22 +55,36 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     bell[1:N] = gaussian(np.log10(rfrequencies[1:N]), rfft_data[1], rfft_data[2])
     bell *= rfft_max / np.max(bell)
     # we don't want to scale the original DC component, so we set that last:
-    bell[0] = rfft_data[0][0]
+    bell[0] = abs(rfft_data[0][0])
     abell = abs(bell)
     print("bell:", np.min(abell), np.max(abell), bell[int(10**rfft_data[1])], np.average(abell), np.std(abell))
     abell = []
 
     # this re-generates the original, mono sound:
     tone = irfft(rfft_data[0]) / data_scaled_by_factor
+
     tone_av = np.average(tone)
     tone_range = np.max(tone) - np.min(tone)
     print("original reconstructed sound:", np.min(tone), np.max(tone), tone_range, tone_av, np.std(tone))
-    tone = irfft(bell)
+
+    #tone = irfft(bell)
+    # following https://stackoverflow.com/a/35091295/1460868
+    f = np.array(bell, dtype='complex')
+    Np = (len(f) - 1) // 2
+    # I don't like the random aspect here but can't seem to be able to do without
+    phases = np.random.normal(rfft_data[1], rfft_data[2], Np) * 2 * np.pi
+    phases = np.cos(phases) + 1j * np.sin(phases)
+    f[1:Np+1] *= phases
+    phases = []
+    f[-1:-1-Np:-1] = np.conj(f[1:Np+1])
+    tone = np.fft.ifft(f).real
+    f = []
     t_av = np.average(tone)
     t_range = np.max(tone) - np.min(tone)
     tone *= tone_range / t_range
     print("sound from bell:", np.min(tone), np.max(tone), np.max(tone)-np.min(tone), np.average(tone), np.std(tone))
     #rfft_data[0].resize(0)
+
     ww = wave.open(output_filename, 'w')
     ww.setnchannels(1)
     ww.setframerate(wr.getframerate())
