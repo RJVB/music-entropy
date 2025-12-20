@@ -58,8 +58,8 @@ def parse_args():
 
 def _signature(name, func):
     """Return string repr of function signature"""
-    defaults = inspect.getargspec(func).defaults or []
-    args = inspect.getargspec(func).args or []
+    defaults = inspect.getfullargspec(func).defaults or []
+    args = inspect.getfullargspec(func).args or []
     arg_str_list = []
 
     n_positional_args = len(args) - len(defaults)

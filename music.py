@@ -52,15 +52,16 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     Fav = 10**rfft_data[1]
     #rfft_data = (rfft_data[0], rfft_data[1], 0.1, rfft_data[3])
     Fstd_est = (10**(rfft_data[1]+rfft_data[2]) - 10**(rfft_data[1]-rfft_data[2])) / 2.0
-    if N % Fav > Fav / 2.0:
-        # increase the number of samples so that we get as close as possible
-        # an integer number of cycles of the the average frequency in the array:
-        N = int(Fav * (N // Fav + 1.0))
+    #if N % Fav > Fav / 2.0:
+        ## increase the number of samples so that we get as close as possible
+        ## an integer number of cycles of the the average frequency in the array:
+        #N = int(Fav * (N // Fav + 1.0))
     print("Sample length", N, "can hold", N / Fav, "cycles of the average spectrum frequency", Fav, "Hz")
-    rfrequencies = rfftfreq(N, 0.5 / wr.getframerate())
+    dt = 1 # has to be 0.5 if we're going to use ifft() instead of irfft() !!
+    rfrequencies = rfftfreq(N, dt / wr.getframerate())
 
     N = len(rfrequencies)
-    bell = np.empty(N, dtype=rfft_data[0].dtype)
+    bell = np.empty(N)
     bell[0] = 0
     bell[1:N] = gaussian(np.log10(rfrequencies[1:N]), rfft_data[1], rfft_data[2])
     bell *= rfft_max / np.max(bell)
@@ -78,20 +79,26 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     tone_range = np.max(tone) - np.min(tone)
     print("original reconstructed sound:", np.min(tone), np.max(tone), tone_range, tone_av, np.std(tone))
 
-    #tone = irfft(bell)
-    # following https://stackoverflow.com/a/35091295/1460868
-    f = np.array(bell, dtype='complex')
-    Np = (len(f) - 1) // 2
-    # I don't like the random aspect here but can't seem to be able to do without
-    phases = np.random.normal(Fav, Fstd_est, Np) * 2 * np.pi
-    phases = np.cos(phases) + 1j * np.sin(phases)
-    f[1:Np+1] *= phases
-    phases = []
-    f[-1:-1-Np:-1] = np.conj(f[1:Np+1])
-    tone = np.fft.ifft(f).real
+    # a new, complex spectrum that preserves the real:imag sign relationships of the input FFT but with np.abs(f) == bell
+    f = np.sign(rfft_data[0].real) + 1j*np.sign(rfft_data[0].imag)
+    f = f * bell / np.abs(f)
+    tone = irfft(f)
+
+    ## following https://stackoverflow.com/a/35091295/1460868
+    #f = np.array(bell, dtype='complex')
+    #Np = (len(f) - 1) // 2
+    ## I don't like the random aspect here but can't seem to be able to do without
+    #phases = np.random.normal(Fav, Fstd_est, Np) * 2 * np.pi
+    #phases = np.cos(phases) + 1j * np.sin(phases)
+    #f[1:Np+1] *= phases
+    #phases = []
+    #f[-1:-1-Np:-1] = np.conj(f[1:Np+1])
+    #tone = np.fft.ifft(f).real
     f = []
+
     t_av = np.average(tone)
     t_range = np.max(tone) - np.min(tone)
+    print("initial av,range of the generated tone:", t_av, t_range)
     tone *= tone_range / t_range
     print("sound from bell:", np.min(tone), np.max(tone), np.max(tone)-np.min(tone), np.average(tone), np.std(tone))
     #rfft_data[0].resize(0)
@@ -102,6 +109,15 @@ def generate_average_tone(input_filename, output_filename, duration=-1):
     ww.setnframes(len(tone))
     ww.setsampwidth(4)
     ww.writeframes(tone.astype(np.int32))
+
+def generate(freqs,bell):
+        N=len(freqs)
+        tone=np.zeros(N)
+        t = np.arange(1,N)
+        for i in range(1,N):
+            if bell[i] != 0.0:
+                tone[1:N] += bell[i] * np.sin(freqs[i] * t * 2*np.pi / N)
+        return tone
 
 def gaussian(x, av, stdev):
     xx = (x - av) / stdev
@@ -168,10 +184,12 @@ def plot(domain, file_name, sample_interval=1, duration=-1):
     putenv("QT_STYLE_OVERRIDE", "KFusion")
 
     import matplotlib
-    if matplotlib.get_backend() == 'agg':
-        # the default Qt backend must not be available; try
-        # to fall back on the less-complex-to-install GTk3 backend
-        matplotlib.use(backend='GTK3agg')
+    mbackend = matplotlib.get_backend()
+    try:
+        import PyQt5
+        matplotlib.use(backend='Qt5agg')
+    except:
+        matplotlib.use(backend=mbackend if mbackend == 'MacOSX' else 'GTK3agg')
 
     if "time" in domain:
         _plot_time(file_name, sample_interval=sample_interval, duration=duration)
