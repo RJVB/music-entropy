@@ -315,8 +315,9 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     n_frames = int(max_frames) if max_frames else wr.getnframes()
     n_channels = wr.getnchannels()
     ## if n_channels != 2 or sample_width != 2 or frame_rate != 44100:
-    if n_channels != 2 or not sample_width in [2,3,4,8]:
-        print("Unsupported sample width or frame rate:")
+    ##if n_channels != 2 or not sample_width in [2,3,4,8]:
+    if not sample_width in [2,3,4,8]:
+        print("Unsupported frame rate:")
         print(_get_wav_info(wr))
         raise SystemExit
     if n_frames > wr.getnframes():
@@ -325,7 +326,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
 
     dim=n_frames
 
-    chunksz = sample_width * 2
+    chunksz = sample_width * n_channels
     bytesize = n_frames * chunksz
     # let readframes() read in chunks that are approx. 64k bytes
     # worth of frames or the entire file, whichever is smaller.
@@ -334,26 +335,30 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     blockread = int(min(bytesize,64*1024)/chunksz)
 
     if blockread == 0:
+        if n_channels != 2:
+            print("Unsupported sample width:")
+            print(_get_wav_info(wr))
+            raise SystemExit
         unpack_format = "<"
     if wr.getsampclass() == int:
         if blockread == 0:
             if sample_width == 8:
                 unpack_format += "ll"
-                chan = np.empty([2,dim], long)
+                chan = np.empty([n_channels,dim], long)
             elif sample_width == 4:
                 unpack_format += "ii"
-                chan = np.empty([2,dim], int)
+                chan = np.empty([n_channels,dim], int)
             elif sample_width == 2:
                 unpack_format += "hh"
-                chan = np.empty([2,dim], np.int16)
+                chan = np.empty([n_channels,dim], np.int16)
             else:
-                chan = np.empty([2,dim], int)
-                unpack_format += f'{int(sample_width*2)}B'
+                chan = np.empty([n_channels,dim], int)
+                unpack_format += f'{int(sample_width*n_channels)}B'
         dtype = f'<i{sample_width}'
     elif wr.getsampclass() == float:
         if blockread == 0:
-            chan = np.empty([2,dim], float)
-            unpack_format += f'{int(sample_width/2)}f'
+            chan = np.empty([n_channels,dim], float)
+            unpack_format += f'{int(sample_width/n_channels)}f'
         dtype = f'<f{sample_width}'
 
     # we assume WAV files with signed samples
@@ -411,7 +416,7 @@ def _time_data(wr, sample_interval=1, max_frames=None):
                 chan[1,i] = data[1]
             chan = chan.astype(float)
         else:
-            chan = np.frombuffer(raw,dtype=dtype).reshape(dim,2).transpose().astype(float)
+            chan = np.frombuffer(raw,dtype=dtype).reshape(dim,n_channels).transpose().astype(float)
     else:
         if blockread == 0:
             for i in range(0,dim):
@@ -428,12 +433,15 @@ def _time_data(wr, sample_interval=1, max_frames=None):
             udtype = f'u{bytelength}'
             idtype = f'i{bytelength}'
             leftshifts = np.arange(rightshift, 8 * bytelength, 8, dtype=udtype)
-            chan = ((np.frombuffer(raw,dtype=f'<u1').reshape((dim, 2, sample_width)) << leftshifts) \
+            chan = ((np.frombuffer(raw,dtype=f'<u1').reshape((dim, n_channels, sample_width)) << leftshifts) \
                     .sum(axis=-1, dtype=udtype).astype(idtype) >> rightshift) \
                     .transpose().astype(float)
     raw = []
     # calculate the average of the 2 channels:
-    track = np.mean(chan, axis=0)
+    if n_channels == 2:
+        track = np.mean(chan, axis=0)
+    else:
+        track = chan[0]
     max_sample = np.max(abs(track))
 
     print() #"Data read in", HRTime.toc(), "s")
@@ -443,19 +451,21 @@ def _time_data(wr, sample_interval=1, max_frames=None):
     max_amp0 = np.max(abs(chan[0]))
     #if max_amp0 == 0:
         #print("chan0 range,av,stdev:", np.min(chan0), np.max(chan0), np.mean(chan0), np.std(chan0))
-    max_amp1 = np.max(abs(chan[1]))
     print("Max abs. channel-0 sample value:", max_amp0)
-    print("Max abs. channel-1 sample value:", max_amp1)
     chan[0] /= max_amp0
-    chan[1] /= max_amp1
+    if n_channels == 2:
+        max_amp1 = np.max(abs(chan[1]))
+        print("Max abs. channel-1 sample value:", max_amp1)
+        chan[1] /= max_amp1
     min_amp0 = np.min(chan[0])
     max_amp0 = np.max(chan[0])
     print("Normalised chan0 range: [", min_amp0, "at t=", chan[0].argmin() * time_base, "seconds",
           "] -\n\t[", max_amp0, "at t=", chan[0].argmax() * time_base, "seconds ]")
-    min_amp1 = np.min(chan[1])
-    max_amp1 = np.max(chan[1])
-    print("Normalised chan1 range: [", min_amp1, "at t=", chan[1].argmin() * time_base, "seconds",
-          "] -\n\t[", max_amp1, "at t=", chan[1].argmax() * time_base, "seconds ]")
+    if n_channels == 2:
+        min_amp1 = np.min(chan[1])
+        max_amp1 = np.max(chan[1])
+        print("Normalised chan1 range: [", min_amp1, "at t=", chan[1].argmin() * time_base, "seconds",
+              "] -\n\t[", max_amp1, "at t=", chan[1].argmax() * time_base, "seconds ]")
 
     #track -= zero;
     print("\nMax abs. channel-mix sample value:", max_sample)
